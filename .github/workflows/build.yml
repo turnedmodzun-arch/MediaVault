@@ -1,0 +1,113 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  QT_VERSION: "6.8.*"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+            artifact: MediaVault-linux-x64
+          - name: Windows
+            os: windows-latest
+            artifact: MediaVault-windows-x64
+          - name: macOS
+            os: macos-latest
+            artifact: MediaVault-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtmultimedia
+          cache: true
+
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-render-util0 libxcb-xinerama0 libpulse-dev libasound2-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      # ---- Packaging -------------------------------------------------------
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item build/Release/MediaVault.exe dist/
+          windeployqt --release --no-translations dist/MediaVault.exe
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir dist
+          cp -R build/MediaVault.app dist/
+          macdeployqt dist/MediaVault.app
+          cd dist && zip -qry MediaVault-macos.zip MediaVault.app && rm -rf MediaVault.app
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir dist
+          cp build/MediaVault dist/
+          echo "Requires Qt 6.5+ runtime libraries (qt6-multimedia). See README." > dist/NOTES.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Zip artifacts
+        run: |
+          cd artifacts
+          for d in MediaVault-linux-x64 MediaVault-windows-x64; do
+            (cd "$d" && zip -qr "../$d.zip" .)
+          done
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/MediaVault-linux-x64.zip
+            artifacts/MediaVault-windows-x64.zip
+            artifacts/MediaVault-macos/MediaVault-macos.zip
