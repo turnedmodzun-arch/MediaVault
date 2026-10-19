@@ -10,6 +10,8 @@ class QLineEdit;
 class QMediaPlayer;
 class QPushButton;
 class QSlider;
+class QTimer;
+class QEvent;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVideoWidget;
@@ -18,6 +20,9 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
     // Scans `root` (which should contain Music, Movies and TV Shows folders).
     void openLibrary(const QString &root);
@@ -35,6 +40,8 @@ private slots:
     void applyFilter(const QString &text);
 
 private:
+    void setFullscreenMode(bool on);
+    void showControls();
     void populate();
     void playItem(QTreeWidgetItem *item);
     QList<QTreeWidgetItem *> leafItems() const;
@@ -56,4 +63,9 @@ private:
     QPushButton *m_playBtn = nullptr;
     QTreeWidgetItem *m_current = nullptr;
     bool m_seeking = false;
+
+    QWidget *m_left = nullptr;          // library pane, hidden in fullscreen
+    QWidget *m_controlsBar = nullptr;   // transport controls, auto-hide in fullscreen
+    QTimer *m_hideTimer = nullptr;
+    bool m_wasMaximized = false;
 };

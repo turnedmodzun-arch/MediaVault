@@ -26,7 +26,7 @@ Folder names are matched case-insensitively. `TV`, `TVShows` and `Series` also w
 - Or from a terminal: `MediaVault /path/to/Media`
 - Double-click or press Enter on an item to play. Playback moves on to the next item automatically.
 - Type in the filter box to narrow the tree.
-- Keys: **Space** play/pause, **←/→** seek 10s, **F11** fullscreen, **Ctrl/Cmd+R** rescan.
+- Keys: **Space** play/pause, **←/→** seek 10s, **F11** or double-click the video for fullscreen (**Esc** exits; controls hide after 3s and return when you move the mouse), **Ctrl/Cmd+R** rescan.
 
 ### How files are recognised
 

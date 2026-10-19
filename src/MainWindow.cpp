@@ -17,6 +17,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
 #include <QUrl>
@@ -57,8 +58,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_tree->setHeaderHidden(true);
     m_tree->setUniformRowHeights(true);
 
-    auto *left = new QWidget;
-    auto *leftLayout = new QVBoxLayout(left);
+    m_left = new QWidget;
+    auto *leftLayout = new QVBoxLayout(m_left);
     leftLayout->setContentsMargins(6, 6, 0, 6);
     leftLayout->addWidget(m_search);
     leftLayout->addWidget(m_tree);
@@ -92,7 +93,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_volume->setMaximumWidth(110);
     m_volume->setToolTip(tr("Volume"));
 
-    auto *controls = new QHBoxLayout;
+    m_controlsBar = new QWidget;
+    auto *controls = new QHBoxLayout(m_controlsBar);
+    controls->setContentsMargins(0, 0, 0, 0);
     controls->addWidget(prevBtn);
     controls->addWidget(m_playBtn);
     controls->addWidget(stopBtn);
@@ -107,10 +110,10 @@ MainWindow::MainWindow(QWidget *parent)
     rightLayout->setContentsMargins(0, 6, 6, 6);
     rightLayout->addWidget(m_video, 1);
     rightLayout->addWidget(m_nowPlaying);
-    rightLayout->addLayout(controls);
+    rightLayout->addWidget(m_controlsBar);
 
     auto *splitter = new QSplitter;
-    splitter->addWidget(left);
+    splitter->addWidget(m_left);
     splitter->addWidget(right);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
@@ -172,6 +175,26 @@ MainWindow::MainWindow(QWidget *parent)
             [this](QMediaPlayer::Error, const QString &msg) {
                 statusBar()->showMessage(tr("Playback error: %1").arg(msg), 8000);
             });
+
+    // Fullscreen: the whole window goes fullscreen; controls auto-hide and
+    // reappear on mouse movement. Esc / F11 / double-click on the video exit.
+    m_hideTimer = new QTimer(this);
+    m_hideTimer->setSingleShot(true);
+    m_hideTimer->setInterval(3000);
+    connect(m_hideTimer, &QTimer::timeout, this, [this] {
+        if (isFullScreen() && !m_controlsBar->underMouse()) {
+            m_controlsBar->hide();
+            m_video->setCursor(Qt::BlankCursor);
+        } else if (isFullScreen()) {
+            m_hideTimer->start();
+        }
+    });
+    m_video->setMouseTracking(true);
+    m_video->installEventFilter(this);
+    new QShortcut(Qt::Key_Escape, this, this, [this] {
+        if (isFullScreen())
+            setFullscreenMode(false);
+    });
 
     new QShortcut(Qt::Key_Space, this, this, &MainWindow::togglePlay);
     new QShortcut(Qt::Key_F11, this, this, &MainWindow::toggleFullscreen);
@@ -341,7 +364,61 @@ void MainWindow::playPrevious()
 
 void MainWindow::toggleFullscreen()
 {
-    m_video->setFullScreen(!m_video->isFullScreen());
+    setFullscreenMode(!isFullScreen());
+}
+
+void MainWindow::setFullscreenMode(bool on)
+{
+    if (on == isFullScreen())
+        return;
+
+    if (on) {
+        m_wasMaximized = isMaximized();
+        m_left->hide();
+        m_nowPlaying->hide();
+        menuBar()->hide();
+        statusBar()->hide();
+        showFullScreen();
+        showControls();   // visible first, then auto-hides after a few seconds
+    } else {
+        m_hideTimer->stop();
+        m_video->unsetCursor();
+        m_left->show();
+        m_nowPlaying->show();
+        m_controlsBar->show();
+        menuBar()->show();
+        statusBar()->show();
+        if (m_wasMaximized)
+            showMaximized();
+        else
+            showNormal();
+    }
+}
+
+void MainWindow::showControls()
+{
+    m_controlsBar->show();
+    m_video->unsetCursor();
+    if (isFullScreen())
+        m_hideTimer->start();
+}
+
+bool MainWindow::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_video) {
+        switch (event->type()) {
+        case QEvent::MouseMove:
+            if (isFullScreen())
+                showControls();
+            break;
+        case QEvent::MouseButtonDblClick:
+            toggleFullscreen();
+            return true;
+        default:
+            break;
+        }
+    }
+    return QMainWindow::eventFilter(obj, event);
 }
 
 bool MainWindow::filterItem(QTreeWidgetItem *item, const QString &needle)
