@@ -4,6 +4,7 @@
 
 #include <QAction>
 #include <QAudioOutput>
+#include <QCursor>
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
@@ -212,6 +213,19 @@ MainWindow::MainWindow(QWidget *parent)
             m_video->setCursor(Qt::BlankCursor);
         } else if (isFullScreen()) {
             m_hideTimer->start();
+        }
+    });
+    // The video surface can swallow mouse events (especially once it has been
+    // resized to fill the screen), so watch the cursor position directly.
+    m_pollTimer = new QTimer(this);
+    m_pollTimer->setInterval(100);
+    connect(m_pollTimer, &QTimer::timeout, this, [this] {
+        if (!isFullScreen())
+            return;
+        const QPoint pos = QCursor::pos();
+        if (pos != m_lastCursor) {
+            m_lastCursor = pos;
+            showControls();   // shows the bar and restarts the hide countdown
         }
     });
     m_video->setMouseTracking(true);
@@ -483,8 +497,11 @@ void MainWindow::setFullscreenMode(bool on)
         menuBar()->hide();
         statusBar()->hide();
         showFullScreen();
+        m_lastCursor = QCursor::pos();
+        m_pollTimer->start();
         showControls();   // visible first, then auto-hides after a few seconds
     } else {
+        m_pollTimer->stop();
         m_hideTimer->stop();
         m_video->unsetCursor();
         m_left->show();

@@ -76,6 +76,8 @@ private:
     QWidget *m_left = nullptr;          // library pane, hidden in fullscreen
     QWidget *m_controlsBar = nullptr;   // transport controls, auto-hide in fullscreen
     QTimer *m_hideTimer = nullptr;
+    QTimer *m_pollTimer = nullptr;   // watches the cursor while fullscreen
+    QPoint m_lastCursor;
     mv::DiscordPresence *m_discord = nullptr;
     QAction *m_discordToggle = nullptr;
     bool m_wasMaximized = false;
