@@ -38,6 +38,17 @@ Folder names are matched case-insensitively. `TV`, `TVShows` and `Series` also w
 
 Formats depend on the Qt Multimedia backend (FFmpeg on Qt 6.5+), which covers mkv, mp4, avi, mov, webm, mp3, flac, ogg, m4a, opus, wav and more.
 
+## Discord status
+
+MediaVault can show what you're watching or listening to on Discord (title, show/season/episode or artist/album, and a progress/elapsed bar). It talks to your local Discord desktop app, so Discord must be running.
+
+1. Create an application at <https://discord.com/developers/applications>. Its **name** is what Discord displays ("Watching *MediaVault*"), so name it accordingly.
+2. Copy its **Application ID**.
+3. In MediaVault: **File → Show on Discord**, and paste the ID when asked (change it later via **File → Discord Application ID…**).
+4. In Discord, make sure *User Settings → Activity Privacy → Share my activity* is on.
+
+The status clears when you stop playback or quit. If Discord isn't running yet, MediaVault retries every 15 seconds.
+
 ## Building
 
 Requires CMake 3.21+, a C++17 compiler and Qt 6.5+ with the Multimedia module.

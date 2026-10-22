@@ -1,11 +1,14 @@
 #include "MainWindow.h"
 
+#include "DiscordPresence.h"
+
 #include <QAction>
 #include <QAudioOutput>
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMediaPlayer>
@@ -28,6 +31,8 @@
 namespace {
 constexpr int kPathRole = Qt::UserRole;
 constexpr const char *kRootKey = "library/root";
+constexpr const char *kDiscordIdKey = "discord/clientId";
+constexpr const char *kDiscordEnabledKey = "discord/enabled";
 
 QString episodeLabel(const mv::MediaItem &ep)
 {
@@ -134,6 +139,23 @@ MainWindow::MainWindow(QWidget *parent)
     Q_UNUSED(openAct);
     fileMenu->addAction(tr("&Rescan Library"), QKeySequence::Refresh, this, &MainWindow::rescan);
     fileMenu->addSeparator();
+
+    // Discord Rich Presence ("Watching ..." / "Listening to ...")
+    m_discord = new mv::DiscordPresence(this);
+    m_discord->setClientId(QSettings().value(kDiscordIdKey).toString());
+    connect(m_discord, &mv::DiscordPresence::statusChanged, this,
+            [this](const QString &text) { statusBar()->showMessage(text, 6000); });
+    m_discordToggle = fileMenu->addAction(tr("Show on &Discord"));
+    m_discordToggle->setCheckable(true);
+    m_discordToggle->setChecked(QSettings().value(kDiscordEnabledKey, false).toBool());
+    connect(m_discordToggle, &QAction::toggled, this, &MainWindow::onDiscordToggled);
+    // Restore last session's choice (only if an Application ID is saved).
+    if (m_discordToggle->isChecked() && !QSettings().value(kDiscordIdKey).toString().trimmed().isEmpty())
+        m_discord->setEnabled(true);
+    else
+        m_discordToggle->setChecked(false);
+    fileMenu->addAction(tr("Discord &Application ID…"), this, &MainWindow::promptDiscordClientId);
+    fileMenu->addSeparator();
     fileMenu->addAction(tr("&Quit"), QKeySequence::Quit, this, &QWidget::close);
 
     // --- Wiring ---------------------------------------------------------
@@ -152,12 +174,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_seek, &QSlider::sliderPressed, this, [this] { m_seeking = true; });
     connect(m_seek, &QSlider::sliderReleased, this, [this] {
         m_seeking = false;
-        m_player->setPosition(m_seek->value());
+        seekTo(m_seek->value());
     });
 
     connect(m_player, &QMediaPlayer::durationChanged, this, [this](qint64 d) {
         m_seek->setRange(0, static_cast<int>(d));
         m_timeLabel->setText(formatTime(m_player->position()) + " / " + formatTime(d));
+        updatePresence();   // duration is now known, so the progress bar can show
     });
     connect(m_player, &QMediaPlayer::positionChanged, this, [this](qint64 p) {
         if (!m_seeking)
@@ -167,6 +190,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState s) {
         m_playBtn->setIcon(style()->standardIcon(
             s == QMediaPlayer::PlayingState ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+        updatePresence();
     });
     connect(m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus s) {
         if (s == QMediaPlayer::EndOfMedia)
@@ -199,8 +223,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     new QShortcut(Qt::Key_Space, this, this, &MainWindow::togglePlay);
     new QShortcut(Qt::Key_F11, this, this, &MainWindow::toggleFullscreen);
-    new QShortcut(Qt::Key_Right, this, this, [this] { m_player->setPosition(m_player->position() + 10000); });
-    new QShortcut(Qt::Key_Left, this, this, [this] { m_player->setPosition(qMax<qint64>(0, m_player->position() - 10000)); });
+    new QShortcut(Qt::Key_Right, this, this, [this] { seekTo(m_player->position() + 10000); });
+    new QShortcut(Qt::Key_Left, this, this, [this] { seekTo(qMax<qint64>(0, m_player->position() - 10000)); });
 }
 
 void MainWindow::openSavedLibrary()
@@ -310,6 +334,85 @@ void MainWindow::playItem(QTreeWidgetItem *item)
     for (QTreeWidgetItem *p = item; p && p->parent(); p = p->parent())
         crumbs.prepend(p->text(0));
     m_nowPlaying->setText(crumbs.join(QStringLiteral("  ›  ")));
+    updatePresence(0);
+}
+
+void MainWindow::seekTo(qint64 ms)
+{
+    m_player->setPosition(ms);
+    updatePresence(ms);
+}
+
+void MainWindow::updatePresence(qint64 positionOverrideMs)
+{
+    if (!m_discord)
+        return;
+
+    mv::Activity a;
+    if (!m_current || m_player->playbackState() == QMediaPlayer::StoppedState) {
+        m_discord->setActivity(a);   // Kind::None clears the status
+        return;
+    }
+
+    // Crumbs below the category row: movie [title]; TV [show, season, episode];
+    // music [artist, album, track]. The category is the top-level row's index.
+    QStringList crumbs;
+    QTreeWidgetItem *top = m_current;
+    for (; top->parent(); top = top->parent())
+        crumbs.prepend(top->text(0));
+    const int category = m_tree->indexOfTopLevelItem(top);   // 0 movies, 1 TV, 2 music
+
+    if (category == 2 && crumbs.size() >= 3) {
+        a.kind = mv::Activity::Kind::Listening;
+        a.details = crumbs.at(2);
+        a.state = tr("by %1 – %2").arg(crumbs.at(0), crumbs.at(1));
+    } else if (category == 1 && crumbs.size() >= 3) {
+        a.kind = mv::Activity::Kind::Watching;
+        a.details = crumbs.at(0);
+        a.state = tr("%1 · %2").arg(crumbs.at(1), crumbs.at(2));
+    } else {
+        a.kind = category == 2 ? mv::Activity::Kind::Listening : mv::Activity::Kind::Watching;
+        a.details = crumbs.isEmpty() ? m_current->text(0) : crumbs.last();
+        a.state = category == 0 ? tr("Movie") : QString();
+    }
+
+    a.playing = m_player->playbackState() == QMediaPlayer::PlayingState;
+    a.positionMs = positionOverrideMs >= 0 ? positionOverrideMs : m_player->position();
+    a.durationMs = m_player->duration();
+    m_discord->setActivity(a);
+}
+
+void MainWindow::onDiscordToggled(bool on)
+{
+    QSettings().setValue(kDiscordEnabledKey, on);
+    if (on && QSettings().value(kDiscordIdKey).toString().trimmed().isEmpty()) {
+        promptDiscordClientId();
+        // The prompt may have been cancelled; keep the checkbox honest.
+        if (QSettings().value(kDiscordIdKey).toString().trimmed().isEmpty()) {
+            QSignalBlocker block(m_discordToggle);
+            m_discordToggle->setChecked(false);
+            QSettings().setValue(kDiscordEnabledKey, false);
+            return;
+        }
+    }
+    m_discord->setEnabled(on);
+    updatePresence();
+}
+
+void MainWindow::promptDiscordClientId()
+{
+    bool ok = false;
+    const QString current = QSettings().value(kDiscordIdKey).toString();
+    const QString id = QInputDialog::getText(
+        this, tr("Discord Application ID"),
+        tr("Create an application at discord.com/developers/applications and paste its\n"
+           "Application ID here. The application's name is what Discord shows\n"
+           "(e.g. \"MediaVault\")."),
+        QLineEdit::Normal, current, &ok).trimmed();
+    if (!ok)
+        return;
+    QSettings().setValue(kDiscordIdKey, id);
+    m_discord->setClientId(id);
 }
 
 void MainWindow::togglePlay()
@@ -349,7 +452,7 @@ void MainWindow::playPrevious()
 {
     // Restart the current track if we're more than 3 seconds in.
     if (m_player->position() > 3000) {
-        m_player->setPosition(0);
+        seekTo(0);
         return;
     }
     const auto leaves = leafItems();

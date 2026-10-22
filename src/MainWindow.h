@@ -4,6 +4,9 @@
 
 #include "MediaLibrary.h"
 
+class QAction;
+namespace mv { class DiscordPresence; }
+
 class QAudioOutput;
 class QLabel;
 class QLineEdit;
@@ -38,8 +41,14 @@ private slots:
     void playPrevious();
     void toggleFullscreen();
     void applyFilter(const QString &text);
+    void onDiscordToggled(bool on);
+    void promptDiscordClientId();
 
 private:
+    // Tells Discord what is playing. Pass a position when the player hasn't
+    // caught up yet (e.g. right after a seek); -1 reads it from the player.
+    void updatePresence(qint64 positionOverrideMs = -1);
+    void seekTo(qint64 ms);
     void setFullscreenMode(bool on);
     void showControls();
     void populate();
@@ -67,5 +76,7 @@ private:
     QWidget *m_left = nullptr;          // library pane, hidden in fullscreen
     QWidget *m_controlsBar = nullptr;   // transport controls, auto-hide in fullscreen
     QTimer *m_hideTimer = nullptr;
+    mv::DiscordPresence *m_discord = nullptr;
+    QAction *m_discordToggle = nullptr;
     bool m_wasMaximized = false;
 };
