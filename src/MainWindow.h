@@ -21,13 +21,13 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget *parent = nullptr);
 
-protected:
-    bool eventFilter(QObject *obj, QEvent *event) override;
-
     // Scans `root` (which should contain Music, Movies and TV Shows folders).
     void openLibrary(const QString &root);
     // Re-opens the folder used last time, if any.
     void openSavedLibrary();
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
     void chooseFolder();

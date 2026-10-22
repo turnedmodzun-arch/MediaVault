@@ -3,6 +3,7 @@
 #include <QAction>
 #include <QAudioOutput>
 #include <QDir>
+#include <QEvent>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
