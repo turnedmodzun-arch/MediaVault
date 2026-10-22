@@ -25,7 +25,7 @@ jobs:
             os: windows-latest
             artifact: MediaVault-windows-x64
           - name: macOS
-            os: macos-latest
+            os: macos-14   # newer SDKs dropped the AGL framework that Qt 6.8 still links
             artifact: MediaVault-macos
 
     steps:
